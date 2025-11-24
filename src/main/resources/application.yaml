@@ -1,3 +1,40 @@
 spring:
   application:
     name: gate-cli
+
+  # Main configuration for CLI
+  main:
+    web-application-type: none
+    banner-mode: console
+
+  # Disable OAuth2 auto-configuration (we handle it manually)
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.oauth2.client.servlet.OAuth2ClientAutoConfiguration
+
+# Spring Shell configuration
+spring.shell:
+  interactive:
+    enabled: true
+  history:
+    enabled: true
+    name: gate-cli
+  command:
+    help:
+      enabled: true
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    io.github.samzhu.gate: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n"
+
+# Management endpoints (actuator)
+management:
+  endpoints:
+    enabled-by-default: false
+  endpoint:
+    health:
+      enabled: true
