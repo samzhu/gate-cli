@@ -11,9 +11,10 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
+import java.util.Base64;
 
 /**
  * Service for OAuth2 client credentials flow.
@@ -44,20 +45,24 @@ public class OAuth2Service {
                 log.warn("⚠ Using HTTP for token URL. Consider using HTTPS for security.");
             }
 
-            // Build request body
+            // Build HTTP Basic Authentication header (RFC 6749 Section 2.3.1)
+            String credentials = clientId + ":" + clientSecret;
+            String encodedCredentials = Base64.getEncoder()
+                    .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+
+            // Build request body (only grant_type, credentials in header)
             MultiValueMap<String, String> requestBody = new LinkedMultiValueMap<>();
             requestBody.add("grant_type", "client_credentials");
-            requestBody.add("client_id", clientId);
-            requestBody.add("client_secret", clientSecret);
 
             // Create RestClient for this request
             RestClient restClient = restClientBuilder
                     .baseUrl(tokenUrl)
                     .build();
 
-            // Execute token request
+            // Execute token request with Basic Authentication
             OAuth2TokenResponse response = restClient.post()
                     .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .header("Authorization", "Basic " + encodedCredentials)
                     .body(requestBody)
                     .retrieve()
                     .onStatus(HttpStatusCode::is4xxClientError, (request, responseEntity) -> {

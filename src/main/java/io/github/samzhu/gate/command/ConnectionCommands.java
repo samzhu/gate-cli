@@ -65,8 +65,11 @@ public class ConnectionCommands {
                 return output.toString();
             }
 
-            // Step 1: Create original backup if this is the first connection
-            claudeConfigService.ensureOriginalBackup();
+            // Step 1: Create original backup ONLY if this is the first connection
+            // Skip backup if re-connecting with --force (to preserve original state)
+            if (!configurationService.isConnected()) {
+                claudeConfigService.ensureOriginalBackup();
+            }
 
             // Step 2: Perform OAuth2 authentication
             output.append("→ Connecting to OAuth2 server...\n");
@@ -81,7 +84,7 @@ public class ConnectionCommands {
 
             // Step 3: Update Claude Code settings
             output.append("→ Updating Claude Code settings...\n");
-            claudeConfigService.updateSettings(apiUrl, tokenResponse.getBearerToken(), true);
+            claudeConfigService.updateSettings(apiUrl, tokenResponse.getTokenForAuth(), true);
             output.append("✓ Updated Claude Code settings\n");
 
             // Step 4: Save connection configuration
@@ -119,15 +122,17 @@ public class ConnectionCommands {
                 return "⚠ Not currently connected to any custom API endpoint.\n";
             }
 
-            // Create backup before disconnecting
-            output.append("→ Creating backup of current settings...\n");
-            claudeConfigService.ensureOriginalBackup();
-
-            // Restore original settings
+            // Restore original settings (from backup created during first connect)
+            // If no original backup exists, the settings file will be deleted
             output.append("→ Restoring original settings...\n");
             String originalBackup = configurationService.getOriginalSettingsBackup();
             claudeConfigService.restoreOriginalSettings(originalBackup);
-            output.append("✓ Restored original Claude Code settings\n");
+
+            if (originalBackup != null) {
+                output.append("✓ Restored original Claude Code settings\n");
+            } else {
+                output.append("✓ Removed Claude Code settings (no original file existed)\n");
+            }
 
             // Clear connection configuration
             configurationService.clearConnection();
@@ -171,7 +176,7 @@ public class ConnectionCommands {
             // Update Claude Code settings with new token
             claudeConfigService.updateSettings(
                     connection.getApiUrl(),
-                    tokenResponse.getBearerToken(),
+                    tokenResponse.getTokenForAuth(),
                     false // Don't create backup on refresh
             );
 

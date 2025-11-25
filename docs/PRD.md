@@ -1,8 +1,8 @@
 # Gate-CLI: 產品需求文件
 
 ## 文件資訊
-- **版本**: 1.0.0
-- **最後更新**: 2025-11-24
+- **版本**: 1.1.0
+- **最後更新**: 2025-11-25
 - **專案**: gate-cli
 - **技術堆疊**: Spring Boot 3.5.8, Spring Shell 3.4.1, Java 25, GraalVM Native
 - **目標平台**: 跨平台 CLI (macOS, Linux, Windows)
@@ -60,10 +60,12 @@ Gate-CLI 自動化整個工作流程:
 **網址**: https://code.claude.com/docs/en/settings
 
 **關鍵配置細節:**
-- 設定檔位置: `~/.claude/settings.json`
-- Bearer token 配置: `ANTHROPIC_AUTH_TOKEN` 環境變數
+- 設定檔位置: `~/.claude/settings.json` (預設不存在，Claude Code 會在需要時自動建立)
+- 自訂 API 端點: `ANTHROPIC_BASE_URL` 環境變數 (在 `env` 區段中設定)
+- Bearer token 配置: `ANTHROPIC_AUTH_TOKEN` 環境變數 (**不含** "Bearer " 前綴，Claude Code 會自動加上)
 - 替代方案: `apiKeyHelper` 用於動態憑證生成
-- JSON 結構包含 permissions、env 等區段
+- JSON 結構包含 env、permissions 等區段
+- **重要**: `permissions` 是高風險安全設定，gate-cli 不應修改或新增此區段
 
 ### Spring Shell 3.4.1 文件
 
@@ -126,17 +128,19 @@ gate-cli connect --client-id <id> --client-secret <secret> --token-url <url> --a
 **行為**:
 1. 驗證所有輸入參數
 2. 檢查 Claude Code 設定檔是否存在
-3. 如果設定檔存在且未使用 --force:
-   - 在 `~/.gate-cli/backups/` 建立自動備份
-   - 時間戳記備份: `settings.json.backup.YYYY-MM-DD-HH-mm-ss`
+3. **僅在首次連線時** (尚未連線狀態):
+   - 如果設定檔存在，備份到 `~/.gate-cli/backups/settings.json.original`
+   - 如果設定檔不存在，不建立備份 (記錄「無原始檔案」狀態)
 4. 執行 OAuth2 client credentials 流程:
-   - POST 到 token URL 並附上客戶端憑證
+   - POST 到 token URL，使用 **HTTP Basic Authentication** (RFC 6749 Section 2.3.1)
+   - `Authorization: Basic <base64(client_id:client_secret)>`
    - 從回應解析存取權杖
    - 驗證 token 結構
 5. 讀取現有的 Claude Code 設定 (如果存在)
-6. 合併/更新設定:
-   - 自訂 API 端點 URL
-   - 在適當的配置欄位中設定 Bearer token
+6. 合併/更新設定 (**僅更新 env 區段**):
+   - 設定 `ANTHROPIC_BASE_URL` 為自訂 API 端點 URL
+   - 設定 `ANTHROPIC_AUTH_TOKEN` 為存取權杖 (**不含** "Bearer " 前綴)
+   - **保留**現有的 `permissions` 區段 (不修改、不新增)
 7. 原子性寫入設定:
    - 寫入臨時檔案: `~/.claude/settings.json.tmp`
    - 驗證 JSON 結構
@@ -244,21 +248,30 @@ gate-cli disconnect
 ```
 
 **行為**:
-1. 檢查自訂配置是否存在
-2. 建立目前設定的備份
-3. 從設定中移除自訂 API 端點和 bearer token
-4. 如果原始設定備份存在,則還原它
-5. 否則,建立最小的預設設定
-6. 更新 `~/.gate-cli/config.json` 狀態
-7. 顯示成功訊息
+1. 檢查是否已連線 (如果未連線則提示並退出)
+2. 從 `~/.gate-cli/config.json` 讀取原始備份路徑
+3. 還原原始狀態:
+   - **如果原始備份存在**: 從 `settings.json.original` 還原
+   - **如果無原始備份** (表示使用者原本沒有 settings.json): **刪除** `~/.claude/settings.json`
+4. 清除 `~/.gate-cli/config.json` 中的連線配置
+5. 顯示成功訊息
 
-**輸出範例**:
+**輸出範例 (有原始設定)**:
 ```
-✓ 已建立備份: ~/.gate-cli/backups/settings.json.backup.2025-11-24-11-30-00
-✓ 已移除自訂配置
-✓ 已還原原始設定
+→ Restoring original settings...
+✓ Restored original Claude Code settings
+✓ Cleared connection configuration
 
-狀態: 未連線
+Status: Disconnected
+```
+
+**輸出範例 (原本無 settings.json)**:
+```
+→ Restoring original settings...
+✓ Removed Claude Code settings (no original file existed)
+✓ Cleared connection configuration
+
+Status: Disconnected
 ```
 
 #### 4.1.5 `refresh` 命令
@@ -308,6 +321,8 @@ gate-cli refresh
 }
 ```
 
+**注意**: `originalSettingsBackup` 欄位可能為 `null`，表示使用者在首次連線前沒有 `~/.claude/settings.json` 檔案。此時 `disconnect` 會刪除 settings.json 而非還原。
+
 **安全考量**:
 - 明文儲存 (本機工具,簡化設計)
 - 建議檔案權限: `600` (僅擁有者可讀寫)
@@ -326,8 +341,10 @@ gate-cli refresh
    - 刪除最舊的備份
    - 建立新備份
 3. 特殊備份: `settings.json.original` (永不輪替)
-   - 在第一次 `connect` 命令時建立
+   - **僅在首次 `connect` 時建立** (尚未連線狀態)
+   - **如果使用者原本沒有 settings.json，則不建立此備份**
    - 由 `disconnect` 命令用於完整還原
+   - 使用 `--force` 重新連線時**不會**覆蓋此備份
 
 ---
 
@@ -1098,16 +1115,23 @@ Gate-CLI **不適合**以下場景:
 
 ### 附錄 B: OAuth2 Client Credentials 流程
 
-**請求格式**:
+**請求格式** (使用 HTTP Basic Authentication，RFC 6749 Section 2.3.1):
 ```http
 POST /token HTTP/1.1
 Host: oauth.example.com
 Content-Type: application/x-www-form-urlencoded
+Authorization: Basic <base64(client_id:client_secret)>
 
 grant_type=client_credentials
-&client_id=client-id
-&client_secret=client-secret
-&scope=api.read api.write
+```
+
+**注意**: 客戶端憑證透過 HTTP Basic Authentication 標頭傳送，而非請求 body。
+
+**範例** (使用 curl):
+```bash
+curl -X POST https://oauth.example.com/token \
+  -u "client-id:client-secret" \
+  -d "grant_type=client_credentials"
 ```
 
 **回應格式**:
@@ -1122,33 +1146,43 @@ grant_type=client_credentials
 
 ### 附錄 C: Claude Code 設定結構
 
-**最小設定**:
+**官方文件**: https://code.claude.com/docs/en/settings
+
+**重要說明**:
+- `~/.claude/settings.json` 預設**不存在**，Claude Code 會在需要時自動建立
+- `permissions` 是高風險安全設定，gate-cli **不應**修改或新增此區段
+- `ANTHROPIC_AUTH_TOKEN` 不需要 "Bearer " 前綴，Claude Code 會自動加上
+
+**自訂 LLM Gateway 配置** (gate-cli 產生的格式):
 ```json
 {
-  "apiKey": "sk-ant-...",
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "ANTHROPIC_BASE_URL": "https://api.example.com/v1"
+  }
+}
+```
+
+**如果使用者原本有 permissions 設定** (gate-cli 會保留):
+```json
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "ANTHROPIC_BASE_URL": "https://api.example.com/v1"
+  },
   "permissions": {
-    "allow": ["*"],
-    "deny": [],
+    "allow": ["Bash", "Read"],
+    "deny": ["Write"],
     "ask": []
   }
 }
 ```
 
-**自訂端點配置**:
-```json
-{
-  "apiKey": "not-used",
-  "env": {
-    "ANTHROPIC_AUTH_TOKEN": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-  },
-  "customEndpoint": "https://api.example.com/v1",
-  "permissions": {
-    "allow": ["*"],
-    "deny": [],
-    "ask": []
-  }
-}
-```
+**環境變數說明**:
+| 變數 | 說明 |
+|------|------|
+| `ANTHROPIC_AUTH_TOKEN` | 存取權杖 (不含 "Bearer " 前綴，Claude Code 自動加上) |
+| `ANTHROPIC_BASE_URL` | 自訂 API 端點 URL |
 
 ### 附錄 D: 原子檔案寫入模式
 
@@ -1191,3 +1225,4 @@ public void atomicWrite(String targetPath, String content) throws IOException {
 | 版本 | 日期 | 作者 | 變更 |
 |------|------|------|------|
 | 1.0 | 2025-11-24 | AI 助理 | 初始 PRD 建立 |
+| 1.1 | 2025-11-25 | AI 助理 | 根據實作驗證修正文件:<br>• OAuth2 認證改用 HTTP Basic Auth (RFC 6749)<br>• Claude Code 設定使用 `ANTHROPIC_BASE_URL` 而非 `customEndpoint`<br>• `ANTHROPIC_AUTH_TOKEN` 不含 "Bearer " 前綴<br>• `permissions` 為高風險設定，不由 gate-cli 管理<br>• `disconnect` 邏輯：無原始檔案時刪除 settings.json |

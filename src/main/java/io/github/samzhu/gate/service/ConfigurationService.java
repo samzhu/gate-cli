@@ -27,7 +27,7 @@ public class ConfigurationService {
     /**
      * Reads the configuration file.
      *
-     * @return ConnectionConfig or null if file doesn't exist
+     * @return ConnectionConfig or null if file doesn't exist or is invalid
      */
     public ConnectionConfig readConfig() {
         try {
@@ -37,7 +37,9 @@ public class ConfigurationService {
             }
             return fileUtil.readJson(CONFIG_FILE, ConnectionConfig.class);
         } catch (IOException e) {
-            throw ConfigurationException.readFailed(CONFIG_FILE, e);
+            // If file exists but is invalid/empty, treat as non-existent
+            log.warn("Configuration file exists but is invalid, treating as non-existent: {}", CONFIG_FILE);
+            return null;
         }
     }
 

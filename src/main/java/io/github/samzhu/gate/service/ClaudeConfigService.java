@@ -28,7 +28,7 @@ public class ClaudeConfigService {
     /**
      * Reads Claude Code settings.
      *
-     * @return ClaudeSettings or null if file doesn't exist
+     * @return ClaudeSettings or null if file doesn't exist or is invalid
      */
     public ClaudeSettings readSettings() {
         try {
@@ -39,7 +39,9 @@ public class ClaudeConfigService {
 
             return fileUtil.readJson(SETTINGS_PATH, ClaudeSettings.class);
         } catch (IOException e) {
-            throw ConfigurationException.readFailed(SETTINGS_PATH, e);
+            // If file exists but is invalid/empty, treat as non-existent
+            log.warn("Claude Code settings file exists but is invalid, treating as non-existent: {}", SETTINGS_PATH);
+            return null;
         }
     }
 
@@ -66,9 +68,9 @@ public class ClaudeConfigService {
                 log.debug("Updating existing Claude Code settings");
             }
 
-            // Update with custom configuration
-            settings.setCustomEndpoint(apiUrl);
-            settings.setBearerToken(bearerToken);
+            // Update with custom configuration via environment variables
+            settings.setBaseUrl(apiUrl);
+            settings.setAuthToken(bearerToken);
 
             // Ensure directory exists
             Path settingsPath = fileUtil.expandPath(SETTINGS_PATH);
@@ -103,9 +105,9 @@ public class ClaudeConfigService {
                 backupService.createBackup(SETTINGS_PATH);
             }
 
-            // Remove custom configuration
-            settings.setCustomEndpoint(null);
-            settings.removeBearerToken();
+            // Remove custom configuration from environment variables
+            settings.removeBaseUrl();
+            settings.removeAuthToken();
 
             // Write updated settings
             fileUtil.atomicWriteJson(SETTINGS_PATH, settings);
@@ -119,15 +121,36 @@ public class ClaudeConfigService {
     /**
      * Restores original settings from backup.
      * This is used by the disconnect command to fully restore the original state.
+     *
+     * If no original backup exists (meaning user never had settings.json before),
+     * the settings file is deleted to restore the original "no file" state.
+     * Claude Code will recreate it automatically when needed.
      */
     public void restoreOriginalSettings(String originalBackupPath) {
         if (originalBackupPath != null && fileUtil.exists(originalBackupPath)) {
             backupService.restoreBackup(originalBackupPath, SETTINGS_PATH);
             log.info("Restored original Claude Code settings from {}", originalBackupPath);
         } else {
-            // No original backup exists, create minimal settings
-            log.debug("No original backup found, creating minimal default settings");
-            removeCustomConfig();
+            // No original backup exists - user never had settings.json before
+            // Delete the file to restore the original "no file" state
+            log.debug("No original backup found, deleting settings file to restore original state");
+            deleteSettings();
+        }
+    }
+
+    /**
+     * Deletes the Claude Code settings file.
+     * Used when restoring to original state where no settings file existed.
+     */
+    public void deleteSettings() {
+        try {
+            if (fileUtil.exists(SETTINGS_PATH)) {
+                Path settingsPath = fileUtil.expandPath(SETTINGS_PATH);
+                Files.deleteIfExists(settingsPath);
+                log.info("Deleted Claude Code settings file: {}", SETTINGS_PATH);
+            }
+        } catch (IOException e) {
+            log.warn("Failed to delete settings file: {}", SETTINGS_PATH, e);
         }
     }
 

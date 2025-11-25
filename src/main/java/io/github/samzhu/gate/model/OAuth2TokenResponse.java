@@ -61,9 +61,11 @@ public class OAuth2TokenResponse {
     }
 
     /**
-     * Gets formatted bearer token string
+     * Gets the raw access token (without "Bearer " prefix).
+     * Note: ANTHROPIC_AUTH_TOKEN in settings.json will automatically
+     * get "Bearer " prefix added by Claude Code.
      */
-    public String getBearerToken() {
-        return "Bearer " + accessToken;
+    public String getTokenForAuth() {
+        return accessToken;
     }
 }
