@@ -37,3 +37,4 @@ out/
 .vscode/
 .DS_Store
 gate-cli.log
+gate-cli

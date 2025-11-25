@@ -35,24 +35,65 @@ java -jar build/libs/gate-cli-0.0.1-SNAPSHOT.jar
 
 ```bash
 # Build native image
-./gradlew nativeCompile
+./gradlew nativeCompile -x test --info
 
 # Run native executable
 ./build/native/nativeCompile/gate-cli
 ```
+
+## Execution Modes
+
+Gate-CLI supports two execution modes. See [Spring Shell Execution Documentation](https://docs.spring.io/spring-shell/reference/execution.html) for more details.
+
+### Non-Interactive Mode (Single Command)
+
+Execute a command directly and exit:
+
+```bash
+# Check status
+./gate-cli status
+
+# Connect to API
+./gate-cli connect -i "client-id" -s "secret" -t "https://token-url" -a "https://api-url"
+
+# Refresh token
+./gate-cli refresh
+
+# Disconnect
+./gate-cli disconnect
+```
+
+### Interactive Mode (Shell)
+
+Start the interactive shell for multiple commands:
+
+```bash
+./gate-cli
+```
+
+Then enter commands at the prompt:
+
+```
+gate-cli:>status
+gate-cli:>connect -i "client-id" -s "secret" -t "https://token-url" -a "https://api-url"
+gate-cli:>refresh
+gate-cli:>exit
+```
+
+---
 
 ## Quick Start
 
 ### 1. Check Current Status
 
 ```bash
-gate-cli:>status
+./gate-cli status
 ```
 
 ### 2. Connect to OAuth2 Protected API
 
 ```bash
-gate-cli:>connect \
+./gate-cli connect \
   --client-id "your-client-id" \
   --client-secret "your-client-secret" \
   --token-url "https://oauth.example.com/token" \
@@ -76,12 +117,20 @@ Configuration Summary:
 ### 3. Refresh Token
 
 ```bash
+# Non-interactive
+./gate-cli refresh
+
+# Interactive
 gate-cli:>refresh
 ```
 
 ### 4. Check Status Again
 
 ```bash
+# Non-interactive
+./gate-cli status
+
+# Interactive
 gate-cli:>status
 ```
 
@@ -104,6 +153,10 @@ Claude Code Settings:
 ### 5. Disconnect (Restore Original Settings)
 
 ```bash
+# Non-interactive
+./gate-cli disconnect
+
+# Interactive
 gate-cli:>disconnect
 ```
 
@@ -123,7 +176,11 @@ Connect to OAuth2 server and configure Claude Code.
 
 **Example:**
 ```bash
-connect -i "client-id" -s "secret" -t "https://oauth.example.com/token" -a "https://api.example.com/v1"
+# Non-interactive
+./gate-cli connect -i "client-id" -s "secret" -t "https://oauth.example.com/token" -a "https://api.example.com/v1"
+
+# Interactive
+gate-cli:>connect -i "client-id" -s "secret" -t "https://oauth.example.com/token" -a "https://api.example.com/v1"
 ```
 
 #### `disconnect`
@@ -131,7 +188,11 @@ Disconnect and restore original Claude Code settings.
 
 **Example:**
 ```bash
-disconnect
+# Non-interactive
+./gate-cli disconnect
+
+# Interactive
+gate-cli:>disconnect
 ```
 
 #### `refresh`
@@ -141,7 +202,11 @@ Refresh access token using stored credentials.
 
 **Example:**
 ```bash
-refresh
+# Non-interactive
+./gate-cli refresh
+
+# Interactive
+gate-cli:>refresh
 ```
 
 ### Configuration Management
@@ -151,7 +216,11 @@ Show current connection status and configuration.
 
 **Example:**
 ```bash
-status
+# Non-interactive
+./gate-cli status
+
+# Interactive
+gate-cli:>status
 ```
 
 #### `restore`
@@ -163,14 +232,15 @@ Restore Claude Code settings from a backup.
 
 **Examples:**
 ```bash
-# Restore most recent backup
-restore
+# Non-interactive
+./gate-cli restore                # Restore most recent backup
+./gate-cli restore --list         # List all backups
+./gate-cli restore --backup ~/.gate-cli/backups/settings.json.backup.2025-11-24-10-00-00
 
-# List all backups
-restore --list
-
-# Restore specific backup
-restore --backup ~/.gate-cli/backups/settings.json.backup.2025-11-24-10-00-00
+# Interactive
+gate-cli:>restore
+gate-cli:>restore --list
+gate-cli:>restore --backup ~/.gate-cli/backups/settings.json.backup.2025-11-24-10-00-00
 ```
 
 ## Configuration Files
@@ -311,8 +381,11 @@ Error: Permission denied
 ### Run
 
 ```bash
-# Run from JAR
+# Run from JAR (interactive mode)
 java -jar build/libs/gate-cli-0.0.1-SNAPSHOT.jar
+
+# Run from JAR (non-interactive mode)
+java -jar build/libs/gate-cli-0.0.1-SNAPSHOT.jar status
 
 # Run with Gradle
 ./gradlew bootRun
@@ -324,8 +397,12 @@ java -jar build/libs/gate-cli-0.0.1-SNAPSHOT.jar
 # Build native image
 ./gradlew nativeCompile
 
-# Run native executable
+# Run native executable (interactive mode)
 ./build/native/nativeCompile/gate-cli
+
+# Run native executable (non-interactive mode)
+./build/native/nativeCompile/gate-cli status
+./build/native/nativeCompile/gate-cli connect -i "..." -s "..." -t "..." -a "..."
 ```
 
 ## Technology Stack
