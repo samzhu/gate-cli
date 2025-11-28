@@ -347,6 +347,45 @@ permissions:
 2. 確認使用正確的 `--predicate-type`
 3. 檢查 artifact 是否被修改過
 
+### 6.4 Windows 建置錯誤: Task '.0.1' not found
+
+**問題**: 在 Windows runner 執行 `./gradlew test -Pversion=0.0.1` 時出現：
+
+```
+Task '.0.1' not found in root project 'gate-cli'.
+```
+
+**原因**: 這是 **PowerShell 解析等號 (`=`) 的已知問題**。
+
+Windows GitHub Actions runner 預設使用 PowerShell (pwsh) 作為 shell。PowerShell 在解析包含 `=` 的參數時會出現問題，導致 `-Pversion=0.0.1` 被錯誤解析：
+- PowerShell 將 `version=0` 部分消耗掉
+- 剩餘的 `.0.1` 被 Gradle 誤認為 task 名稱
+
+**解決方案**: 明確指定使用 `bash` shell
+
+```yaml
+# ❌ 錯誤：未指定 shell，Windows 會使用 PowerShell
+- name: Run tests
+  run: ./gradlew test -Pversion=${{ env.BUILD_VERSION }}
+
+# ✅ 正確：明確指定 shell: bash
+- name: Run tests
+  shell: bash
+  run: ./gradlew test -Pversion=${{ env.BUILD_VERSION }}
+```
+
+**替代方案**:
+
+| 方案 | 指令 | 說明 |
+|------|------|------|
+| `shell: bash` ✅ | `./gradlew test -Pversion=1.0.0` | 推薦，跨平台一致 |
+| `shell: cmd` | `gradlew.bat test -Pversion=1.0.0` | Windows 原生 CMD |
+| 引號包裹 | `./gradlew test "-Pversion=1.0.0"` | PowerShell 需小心處理 |
+
+**參考資料**:
+- [PowerShell about_Parsing](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_parsing)
+- [GitHub Actions - All the Shells](https://dev.to/pwd9000/github-actions-all-the-shells-581h)
+
 ---
 
 ## 7. 參考資源
@@ -365,3 +404,4 @@ permissions:
 | 版本 | 日期 | 作者 | 變更 |
 |------|------|------|------|
 | 1.0.0 | 2025-11-28 | AI 助理 | 初始文件建立 |
+| 1.0.1 | 2025-11-28 | AI 助理 | 新增 6.4 Windows PowerShell 參數解析問題說明 |

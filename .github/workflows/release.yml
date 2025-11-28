@@ -90,9 +90,11 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run tests
+        shell: bash
         run: ./gradlew test -Pversion=${{ env.BUILD_VERSION }}
 
       - name: Build native image
+        shell: bash
         run: ./gradlew nativeCompile -Pversion=${{ env.BUILD_VERSION }}
 
       - name: Prepare release artifact
