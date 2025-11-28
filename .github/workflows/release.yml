@@ -1,0 +1,262 @@
+name: Release
+
+# Triggered when a version tag is pushed (e.g., v1.0.0, v0.0.1-SNAPSHOT)
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 0.0.1)'
+        required: true
+        type: string
+
+# Required permissions for release, attestation, and pages
+permissions:
+  contents: write
+  attestations: write
+  id-token: write
+  pages: write
+
+env:
+  # VERSION: Full tag name for GitHub Release (e.g., v1.0.0)
+  # BUILD_VERSION: Version without 'v' prefix for Gradle build (e.g., 1.0.0)
+  VERSION: ${{ github.event.inputs.version || github.ref_name }}
+
+jobs:
+  # Build native images for all platforms
+  # GitHub-hosted runners reference: https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners
+  # GraalVM native-image does NOT support cross-compilation, must build on each target platform
+  # Available runners:
+  #   Linux:   ubuntu-latest (x64), ubuntu-24.04-arm (arm64)
+  #   macOS:   macos-13/macos-15-intel (x64 Intel), macos-latest/macos-14/macos-15 (arm64 Apple Silicon)
+  #   Windows: windows-latest (x64), windows-11-arm (arm64)
+  build-native:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x64 (ubuntu-latest = ubuntu-24.04, 4 CPU, 16GB RAM)
+          - os: ubuntu-latest
+            artifact-name: gate-cli-linux-amd64
+            executable-name: gate-cli
+          # Linux ARM64 - uncomment if needed
+          # - os: ubuntu-24.04-arm
+          #   artifact-name: gate-cli-linux-arm64
+          #   executable-name: gate-cli
+          # macOS Intel x64 (macos-13, 4 CPU, 14GB RAM)
+          - os: macos-13
+            artifact-name: gate-cli-macos-amd64
+            executable-name: gate-cli
+          # macOS Apple Silicon ARM64 (macos-latest = macos-15, 3 CPU M1, 7GB RAM)
+          - os: macos-latest
+            artifact-name: gate-cli-macos-arm64
+            executable-name: gate-cli
+          # Windows x64 (windows-latest = windows-2025, 4 CPU, 16GB RAM)
+          - os: windows-latest
+            artifact-name: gate-cli-windows-amd64
+            executable-name: gate-cli.exe
+          # Windows ARM64 - uncomment if needed
+          # - os: windows-11-arm
+          #   artifact-name: gate-cli-windows-arm64
+          #   executable-name: gate-cli.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: 'gradle'
+
+      # Extract version number from tag (remove 'v' prefix)
+      # Example: v1.0.0 -> 1.0.0, v0.0.1-SNAPSHOT -> 0.0.1-SNAPSHOT
+      - name: Set build version
+        shell: bash
+        run: |
+          VERSION="${{ env.VERSION }}"
+          BUILD_VERSION="${VERSION#v}"
+          echo "BUILD_VERSION=$BUILD_VERSION" >> $GITHUB_ENV
+          echo "Building version: $BUILD_VERSION"
+
+      - name: Grant execute permission for gradlew
+        if: runner.os != 'Windows'
+        run: chmod +x gradlew
+
+      - name: Run tests
+        run: ./gradlew test -Pversion=${{ env.BUILD_VERSION }}
+
+      - name: Build native image
+        run: ./gradlew nativeCompile -Pversion=${{ env.BUILD_VERSION }}
+
+      - name: Prepare release artifact
+        shell: bash
+        run: |
+          mkdir -p release
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            cp build/native/nativeCompile/gate-cli.exe release/${{ matrix.artifact-name }}.exe
+            cd release && zip ${{ matrix.artifact-name }}.zip ${{ matrix.artifact-name }}.exe
+          else
+            cp build/native/nativeCompile/gate-cli release/${{ matrix.artifact-name }}
+            chmod +x release/${{ matrix.artifact-name }}
+            cd release && zip ${{ matrix.artifact-name }}.zip ${{ matrix.artifact-name }}
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: release/${{ matrix.artifact-name }}.zip
+          retention-days: 1
+
+  # Generate SBOM and create release
+  create-release:
+    needs: build-native
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java for SBOM generation
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+
+      # Extract version number from tag (remove 'v' prefix)
+      - name: Set build version
+        run: |
+          VERSION="${{ env.VERSION }}"
+          BUILD_VERSION="${VERSION#v}"
+          echo "BUILD_VERSION=$BUILD_VERSION" >> $GITHUB_ENV
+          echo "Building version: $BUILD_VERSION"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # Generate CycloneDX SBOM using the existing plugin (org.cyclonedx.bom)
+      - name: Generate CycloneDX SBOM
+        run: |
+          ./gradlew cyclonedxBom -Pversion=${{ env.BUILD_VERSION }}
+          mkdir -p sbom
+          cp build/reports/application.cdx.json sbom/gate-cli-sbom.cdx.json
+
+      # Generate HTML report using CycloneDX Sunshine tool
+      - name: Generate SBOM HTML report
+        run: |
+          python3 -m pip install --upgrade pip
+          curl -sL -o sunshine.py https://raw.githubusercontent.com/CycloneDX/Sunshine/main/sunshine.py
+          python3 sunshine.py -i sbom/gate-cli-sbom.cdx.json -o sbom/gate-cli-sbom-report.html
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom/
+          retention-days: 1
+
+      # Download all native build artifacts
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # Prepare release files
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          # Copy native executables
+          cp artifacts/gate-cli-linux-amd64/gate-cli-linux-amd64.zip release/
+          cp artifacts/gate-cli-macos-amd64/gate-cli-macos-amd64.zip release/
+          cp artifacts/gate-cli-macos-arm64/gate-cli-macos-arm64.zip release/
+          cp artifacts/gate-cli-windows-amd64/gate-cli-windows-amd64.zip release/
+          # Copy SBOM files
+          cp artifacts/sbom/gate-cli-sbom.cdx.json release/
+          cp artifacts/sbom/gate-cli-sbom-report.html release/
+
+      # SBOM Attestation (2025 best practice for supply chain security)
+      # Reference: https://github.com/actions/attest-sbom
+      - name: Generate SBOM Attestation for Linux AMD64
+        uses: actions/attest-sbom@v2
+        with:
+          subject-path: release/gate-cli-linux-amd64.zip
+          sbom-path: release/gate-cli-sbom.cdx.json
+
+      - name: Generate SBOM Attestation for macOS AMD64
+        uses: actions/attest-sbom@v2
+        with:
+          subject-path: release/gate-cli-macos-amd64.zip
+          sbom-path: release/gate-cli-sbom.cdx.json
+
+      - name: Generate SBOM Attestation for macOS ARM64
+        uses: actions/attest-sbom@v2
+        with:
+          subject-path: release/gate-cli-macos-arm64.zip
+          sbom-path: release/gate-cli-sbom.cdx.json
+
+      - name: Generate SBOM Attestation for Windows AMD64
+        uses: actions/attest-sbom@v2
+        with:
+          subject-path: release/gate-cli-windows-amd64.zip
+          sbom-path: release/gate-cli-sbom.cdx.json
+
+      # Create GitHub Release
+      # Using softprops/action-gh-release (well-maintained community action)
+      # Alternative: Use gh CLI directly
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Release ${{ env.VERSION }}
+          body: |
+            ## Gate-CLI ${{ env.VERSION }}
+
+            Gate-CLI is a command-line tool for automating Claude Code configuration with OAuth2-protected custom API endpoints.
+
+            ### Downloads
+
+            | Platform | Architecture | File |
+            |----------|--------------|------|
+            | Linux | x64 | `gate-cli-linux-amd64.zip` |
+            | macOS | Intel (x64) | `gate-cli-macos-amd64.zip` |
+            | macOS | Apple Silicon (ARM64) | `gate-cli-macos-arm64.zip` |
+            | Windows | x64 | `gate-cli-windows-amd64.zip` |
+
+            ### Installation
+
+            1. Download the appropriate ZIP file for your platform
+            2. Extract: `unzip gate-cli-<platform>.zip`
+            3. (macOS/Linux) Make executable: `chmod +x gate-cli`
+            4. Move to PATH: `mv gate-cli /usr/local/bin/` (or add to your PATH)
+
+            ### SBOM (Software Bill of Materials)
+
+            For supply chain security, SBOM files are provided:
+            - `gate-cli-sbom.cdx.json` - CycloneDX format (machine-readable)
+            - `gate-cli-sbom-report.html` - Interactive HTML report
+
+            **Verify SBOM Attestation:**
+            ```bash
+            gh attestation verify gate-cli-<platform>.zip \
+              -R ${{ github.repository }} \
+              --predicate-type https://cyclonedx.org/bom/v1.6
+            ```
+
+            ---
+            Built on: ${{ github.event.repository.updated_at }}
+            Commit: ${{ github.sha }}
+          draft: false
+          prerelease: ${{ contains(env.VERSION, 'SNAPSHOT') || contains(env.VERSION, 'alpha') || contains(env.VERSION, 'beta') || contains(env.VERSION, 'rc') }}
+          files: |
+            release/gate-cli-linux-amd64.zip
+            release/gate-cli-macos-amd64.zip
+            release/gate-cli-macos-arm64.zip
+            release/gate-cli-windows-amd64.zip
+            release/gate-cli-sbom.cdx.json
+            release/gate-cli-sbom-report.html

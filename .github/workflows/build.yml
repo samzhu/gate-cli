@@ -1,5 +1,7 @@
-name: Build and Test
+name: CI
 
+# Continuous Integration - runs on every push and pull request
+# For full native builds and releases, see release.yml (triggered by tags)
 on:
   push:
     branches: [ main ]
@@ -7,13 +9,15 @@ on:
     branches: [ main ]
 
 jobs:
-  # Run tests first
+  # Run tests for quick feedback on every push/PR
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: graalvm/setup-graalvm@v1
+      - name: Setup GraalVM
+        uses: graalvm/setup-graalvm@v1
         with:
           java-version: '25'
           distribution: 'graalvm'
@@ -39,87 +43,18 @@ jobs:
         with:
           name: test-results
           path: build/reports/tests/
+          retention-days: 7
 
-  # Build native images for all platforms
-  # GitHub-hosted runners reference: https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners
-  # GraalVM native-image does NOT support cross-compilation, must build on each target platform
-  # Available runners:
-  #   Linux:   ubuntu-latest (x64), ubuntu-24.04-arm (arm64)
-  #   macOS:   macos-13/macos-15-intel (x64 Intel), macos-latest/macos-14/macos-15 (arm64 Apple Silicon)
-  #   Windows: windows-latest (x64), windows-11-arm (arm64)
-  build-native:
-    needs: test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Linux x64 (ubuntu-latest = ubuntu-24.04, 4 CPU, 16GB RAM)
-          - os: ubuntu-latest
-            artifact-name: gate-cli-linux-amd64
-            executable-name: gate-cli
-          # Linux ARM64 - uncomment if needed
-          # - os: ubuntu-24.04-arm
-          #   artifact-name: gate-cli-linux-arm64
-          #   executable-name: gate-cli
-          # macOS Intel x64 (macos-13, 4 CPU, 14GB RAM)
-          - os: macos-13
-            artifact-name: gate-cli-macos-amd64
-            executable-name: gate-cli
-          # macOS Apple Silicon ARM64 (macos-latest = macos-15, 3 CPU M1, 7GB RAM)
-          - os: macos-latest
-            artifact-name: gate-cli-macos-arm64
-            executable-name: gate-cli
-          # Windows x64 (windows-latest = windows-2025, 4 CPU, 16GB RAM)
-          - os: windows-latest
-            artifact-name: gate-cli-windows-amd64
-            executable-name: gate-cli.exe
-          # Windows ARM64 - uncomment if needed
-          # - os: windows-11-arm
-          #   artifact-name: gate-cli-windows-arm64
-          #   executable-name: gate-cli.exe
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '25'
-          distribution: 'graalvm'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          cache: 'gradle'
-
-      - name: Grant execute permission for gradlew
-        if: runner.os != 'Windows'
-        run: chmod +x gradlew
-
-      - name: Build native image
-        run: ./gradlew nativeCompile
-
-      - name: Verify native executable
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            ./build/native/nativeCompile/gate-cli.exe --help || true
-          else
-            ./build/native/nativeCompile/gate-cli --help || true
-          fi
-
-      - name: Upload native executable
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact-name }}
-          path: build/native/nativeCompile/${{ matrix.executable-name }}
-          if-no-files-found: error
-
-  # Build JAR artifact
+  # Build JAR to verify compilation (faster than native)
   build-jar:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: graalvm/setup-graalvm@v1
+      - name: Setup GraalVM
+        uses: graalvm/setup-graalvm@v1
         with:
           java-version: '25'
           distribution: 'graalvm'
@@ -137,4 +72,4 @@ jobs:
         with:
           name: gate-cli-jar
           path: build/libs/*.jar
-          if-no-files-found: error
+          retention-days: 7

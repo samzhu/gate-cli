@@ -7,7 +7,9 @@ plugins {
 }
 
 group = 'io.github.samzhu'
-version = '0.0.1-SNAPSHOT'
+// Version can be overridden via command line: ./gradlew build -Pversion=1.0.0
+// In CI/CD, the version is injected from git tag
+version = findProperty('version') ?: '0.0.1-SNAPSHOT'
 description = 'Simplify Claude Code configuration'
 
 java {
