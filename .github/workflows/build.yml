@@ -41,6 +41,12 @@ jobs:
           path: build/reports/tests/
 
   # Build native images for all platforms
+  # GitHub-hosted runners reference: https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners
+  # GraalVM native-image does NOT support cross-compilation, must build on each target platform
+  # Available runners:
+  #   Linux:   ubuntu-latest (x64), ubuntu-24.04-arm (arm64)
+  #   macOS:   macos-13/macos-15-intel (x64 Intel), macos-latest/macos-14/macos-15 (arm64 Apple Silicon)
+  #   Windows: windows-latest (x64), windows-11-arm (arm64)
   build-native:
     needs: test
     runs-on: ${{ matrix.os }}
@@ -48,18 +54,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Linux x64 (ubuntu-latest = ubuntu-24.04, 4 CPU, 16GB RAM)
           - os: ubuntu-latest
             artifact-name: gate-cli-linux-amd64
             executable-name: gate-cli
-          - os: macos-latest
+          # Linux ARM64 - uncomment if needed
+          # - os: ubuntu-24.04-arm
+          #   artifact-name: gate-cli-linux-arm64
+          #   executable-name: gate-cli
+          # macOS Intel x64 (macos-13, 4 CPU, 14GB RAM)
+          - os: macos-13
             artifact-name: gate-cli-macos-amd64
             executable-name: gate-cli
-          - os: macos-14
+          # macOS Apple Silicon ARM64 (macos-latest = macos-15, 3 CPU M1, 7GB RAM)
+          - os: macos-latest
             artifact-name: gate-cli-macos-arm64
             executable-name: gate-cli
+          # Windows x64 (windows-latest = windows-2025, 4 CPU, 16GB RAM)
           - os: windows-latest
             artifact-name: gate-cli-windows-amd64
             executable-name: gate-cli.exe
+          # Windows ARM64 - uncomment if needed
+          # - os: windows-11-arm
+          #   artifact-name: gate-cli-windows-arm64
+          #   executable-name: gate-cli.exe
 
     steps:
       - uses: actions/checkout@v4
