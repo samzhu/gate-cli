@@ -34,6 +34,115 @@ public class ConfigurationCommands {
     private final OAuth2Service oauth2Service;
 
     /**
+     * Manage gate-cli configuration settings.
+     */
+    @Command(command = "config", description = "Manage gate-cli configuration")
+    public String config(
+            @Option(longNames = "client-id", shortNames = 'i',
+                    description = "Set OAuth2 client ID") String clientId,
+            @Option(longNames = "client-secret", shortNames = 's',
+                    description = "Set OAuth2 client secret") String clientSecret,
+            @Option(longNames = "issuer-uri", shortNames = 'u',
+                    description = "Set OAuth2 issuer URI") String issuerUri,
+            @Option(longNames = "api-url", shortNames = 'a',
+                    description = "Set Claude API endpoint URL") String apiUrl,
+            @Option(longNames = "list", shortNames = 'l',
+                    description = "List current configuration", defaultValue = "false") boolean list,
+            @Option(longNames = "reset", shortNames = 'r',
+                    description = "Reset to default values", defaultValue = "false") boolean reset
+    ) {
+        // Show configuration if --list flag is set
+        if (list) {
+            return showConfiguration();
+        }
+
+        // Reset settings if --reset flag is set
+        if (reset) {
+            configurationService.resetSettings();
+            return "✓ Configuration reset to default values\n";
+        }
+
+        // Update settings
+        StringBuilder output = new StringBuilder();
+        boolean updated = false;
+
+        if (clientId != null) {
+            configurationService.setClientId(clientId);
+            output.append("✓ Client ID set to: ").append(clientId).append("\n");
+            updated = true;
+        }
+
+        if (clientSecret != null) {
+            configurationService.setClientSecret(clientSecret);
+            output.append("✓ Client Secret set\n");
+            updated = true;
+        }
+
+        if (issuerUri != null) {
+            configurationService.setIssuerUri(issuerUri);
+            output.append("✓ Issuer URI set to: ").append(issuerUri).append("\n");
+            updated = true;
+        }
+
+        if (apiUrl != null) {
+            configurationService.setApiUrl(apiUrl);
+            output.append("✓ API URL set to: ").append(apiUrl).append("\n");
+            updated = true;
+        }
+
+        // Show configuration if no parameters were provided
+        if (!updated) {
+            return showConfiguration();
+        }
+
+        return output.toString();
+    }
+
+    /**
+     * Shows the current gate-cli configuration.
+     */
+    private String showConfiguration() {
+        StringBuilder output = new StringBuilder();
+        output.append("Gate-CLI Configuration\n");
+        output.append("======================\n\n");
+
+        String clientId = configurationService.getEffectiveClientId();
+        String clientSecret = configurationService.getEffectiveClientSecret();
+        String issuerUri = configurationService.getEffectiveIssuerUri();
+        String apiUrl = configurationService.getEffectiveApiUrl();
+
+        output.append("Settings:\n");
+        output.append("  Client ID:     ").append(valueOrNotSet(clientId)).append("\n");
+        output.append("  Client Secret: ").append(maskSecret(clientSecret)).append("\n");
+        output.append("  Issuer URI:    ").append(valueOrNotSet(issuerUri)).append("\n");
+        output.append("  API URL:       ").append(valueOrNotSet(apiUrl)).append("\n");
+
+        output.append("\nConfig file: ~/.gate-cli/config.json\n");
+
+        return output.toString();
+    }
+
+    /**
+     * Returns the value or "(not set)" if empty.
+     */
+    private String valueOrNotSet(String value) {
+        return (value != null && !value.isEmpty()) ? value : "(not set)";
+    }
+
+    /**
+     * Masks secret value for display (shows last 4 chars).
+     */
+    private String maskSecret(String secret) {
+        if (secret == null || secret.isEmpty()) {
+            return "(not set)";
+        }
+        if (secret.length() <= 4) {
+            return "****";
+        }
+        return "****" + secret.substring(secret.length() - 4);
+    }
+
+    /**
      * Display current connection status and configuration.
      */
     @Command(command = "status", description = "Show current connection status and configuration")
@@ -43,39 +152,62 @@ public class ConfigurationCommands {
         output.append("Gate-CLI Status\n");
         output.append("===============\n\n");
 
-        // Check connection status
+        // Configuration section
+        output.append("Configuration:\n");
+        String clientId = configurationService.getEffectiveClientId();
+        String clientSecret = configurationService.getEffectiveClientSecret();
+        String issuerUri = configurationService.getEffectiveIssuerUri();
+        String apiUrl = configurationService.getEffectiveApiUrl();
+
+        output.append("  Client ID:     ").append(valueOrNotSet(clientId)).append("\n");
+        output.append("  Client Secret: ").append(maskSecret(clientSecret)).append("\n");
+        output.append("  Issuer URI:    ").append(valueOrNotSet(issuerUri)).append("\n");
+        output.append("  API URL:       ").append(valueOrNotSet(apiUrl)).append("\n");
+        output.append("\n");
+
+        // Connection status section
+        output.append("Connection:\n");
         if (configurationService.isConnected()) {
             ConnectionConfig.CurrentConnection connection = configurationService.getCurrentConnection();
 
-            output.append("Status: Connected\n");
-            output.append("API URL: ").append(connection.getApiUrl()).append("\n");
+            output.append("  Status: Connected\n");
+
+            // Auth type
+            String authType = connection.getAuthType();
+            if ("pkce".equals(authType)) {
+                output.append("  Auth Type: OAuth2 PKCE (Public Client)\n");
+            } else {
+                output.append("  Auth Type: OAuth2 Client Credentials (M2M)\n");
+            }
 
             // Token status
             if (connection.getTokenExpiration() != null) {
                 Duration timeUntil = oauth2Service.getTimeUntilExpiration(connection.getTokenExpiration());
                 if (timeUntil != null) {
-                    output.append("Token Status: Valid (expires in ")
+                    output.append("  Token Status: Valid (expires in ")
                             .append(oauth2Service.formatDuration(timeUntil))
                             .append(")\n");
                 } else {
-                    output.append("Token Status: Expired\n");
-                    output.append("  → Use 'refresh' command to obtain a new token\n");
+                    output.append("  Token Status: Expired\n");
+                    output.append("    → Use 'refresh' or 'login'/'connect' to obtain a new token\n");
                 }
             }
 
             // Last connected
             if (connection.getLastConnected() != null) {
-                output.append("Last Connected: ")
+                output.append("  Last Connected: ")
                         .append(TIMESTAMP_FORMAT.format(connection.getLastConnected()))
                         .append("\n");
             }
         } else {
-            output.append("Status: Not connected\n");
+            output.append("  Status: Not connected\n");
             output.append("\n");
-            output.append("Use 'connect' command to configure Claude Code with a custom API endpoint.\n");
+            output.append("  Use 'login' for interactive browser login (PKCE)\n");
+            output.append("  Use 'connect' for M2M authentication (Client Credentials)\n");
         }
 
         // Backup information
+        output.append("\n");
         List<BackupService.BackupInfo> backups = backupService.listBackups();
         output.append("Available Backups: ").append(backups.size()).append("\n");
 

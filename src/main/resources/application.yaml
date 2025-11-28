@@ -38,3 +38,10 @@ management:
   endpoint:
     health:
       enabled: true
+
+# Gate-CLI configuration
+# All settings should be configured via 'config' command
+# These are internal defaults only
+gate-cli:
+  scope: openid
+  callback-port: 8080

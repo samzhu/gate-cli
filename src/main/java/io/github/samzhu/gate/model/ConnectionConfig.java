@@ -20,18 +20,43 @@ import java.time.Instant;
 public class ConnectionConfig {
 
     private String version;
+    private Settings settings;
     private CurrentConnection currentConnection;
     private BackupSettings backupSettings;
     private String originalSettingsBackup;
 
+    /**
+     * User-configurable settings managed by 'config' command.
+     * These override application.yaml defaults.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class Settings {
+        private String apiUrl;
+        private String issuerUri;
+        private String clientId;
+        private String clientSecret;
+    }
+
+    /**
+     * Current active connection information.
+     */
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class CurrentConnection {
+        /**
+         * Authentication type: "pkce" for login, "client_credentials" for connect
+         */
+        private String authType;
         private String clientId;
         private String clientSecret;
+        private String issuerUri;
         private String tokenUrl;
         private String apiUrl;
         private Instant lastConnected;

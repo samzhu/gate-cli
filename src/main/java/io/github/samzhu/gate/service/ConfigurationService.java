@@ -1,5 +1,6 @@
 package io.github.samzhu.gate.service;
 
+import io.github.samzhu.gate.config.GateCliProperties;
 import io.github.samzhu.gate.exception.ConfigurationException;
 import io.github.samzhu.gate.model.ConnectionConfig;
 import io.github.samzhu.gate.util.FileUtil;
@@ -20,9 +21,10 @@ import java.time.Instant;
 public class ConfigurationService {
 
     private static final String CONFIG_FILE = "~/.gate-cli/config.json";
-    private static final String CONFIG_VERSION = "1.0";
+    private static final String CONFIG_VERSION = "2.0";
 
     private final FileUtil fileUtil;
+    private final GateCliProperties gateCliProperties;
 
     /**
      * Reads the configuration file.
@@ -190,5 +192,199 @@ public class ConfigurationService {
     public String getOriginalSettingsBackup() {
         ConnectionConfig config = readConfig();
         return config != null ? config.getOriginalSettingsBackup() : null;
+    }
+
+    // ========== Settings Management ==========
+
+    /**
+     * Sets the API URL in settings.
+     */
+    public void setApiUrl(String apiUrl) {
+        updateSettings(settings -> settings.setApiUrl(apiUrl));
+        log.debug("Set API URL: {}", apiUrl);
+    }
+
+    /**
+     * Sets the Issuer URI in settings.
+     */
+    public void setIssuerUri(String issuerUri) {
+        updateSettings(settings -> settings.setIssuerUri(issuerUri));
+        log.debug("Set Issuer URI: {}", issuerUri);
+    }
+
+    /**
+     * Sets the Client ID in settings.
+     */
+    public void setClientId(String clientId) {
+        updateSettings(settings -> settings.setClientId(clientId));
+        log.debug("Set Client ID: {}", clientId);
+    }
+
+    /**
+     * Sets the Client Secret in settings.
+     */
+    public void setClientSecret(String clientSecret) {
+        updateSettings(settings -> settings.setClientSecret(clientSecret));
+        log.debug("Set Client Secret: ****");
+    }
+
+    /**
+     * Resets settings to default values (clears config.json settings).
+     */
+    public void resetSettings() {
+        try {
+            ConnectionConfig config = readConfig();
+            if (config != null) {
+                config.setSettings(null);
+                fileUtil.atomicWriteJson(CONFIG_FILE, config);
+                log.info("Reset settings to default values");
+            }
+        } catch (IOException e) {
+            throw ConfigurationException.writeFailed(CONFIG_FILE, e);
+        }
+    }
+
+    /**
+     * Helper method to update settings.
+     */
+    private void updateSettings(java.util.function.Consumer<ConnectionConfig.Settings> updater) {
+        try {
+            fileUtil.createDirectory("~/.gate-cli");
+
+            ConnectionConfig config = readConfig();
+            if (config == null) {
+                config = ConnectionConfig.builder()
+                        .version(CONFIG_VERSION)
+                        .backupSettings(ConnectionConfig.BackupSettings.builder().build())
+                        .build();
+            }
+
+            ConnectionConfig.Settings settings = config.getSettings();
+            if (settings == null) {
+                settings = ConnectionConfig.Settings.builder().build();
+                config.setSettings(settings);
+            }
+
+            updater.accept(settings);
+            fileUtil.atomicWriteJson(CONFIG_FILE, config);
+        } catch (IOException e) {
+            throw ConfigurationException.writeFailed(CONFIG_FILE, e);
+        }
+    }
+
+    // ========== Effective Settings (config.json > yaml) ==========
+
+    /**
+     * Gets the effective API URL (config.json > yaml).
+     */
+    public String getEffectiveApiUrl() {
+        ConnectionConfig config = readConfig();
+        if (config != null && config.getSettings() != null) {
+            String value = config.getSettings().getApiUrl();
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+        }
+        return emptyToNull(gateCliProperties.getApiUrl());
+    }
+
+    /**
+     * Gets the effective Issuer URI (config.json > yaml).
+     */
+    public String getEffectiveIssuerUri() {
+        ConnectionConfig config = readConfig();
+        if (config != null && config.getSettings() != null) {
+            String value = config.getSettings().getIssuerUri();
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+        }
+        return emptyToNull(gateCliProperties.getIssuerUri());
+    }
+
+    /**
+     * Gets the effective Client ID (config.json > yaml).
+     */
+    public String getEffectiveClientId() {
+        ConnectionConfig config = readConfig();
+        if (config != null && config.getSettings() != null) {
+            String value = config.getSettings().getClientId();
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+        }
+        return emptyToNull(gateCliProperties.getClientId());
+    }
+
+    /**
+     * Gets the effective Client Secret (config.json only, no yaml fallback).
+     */
+    public String getEffectiveClientSecret() {
+        ConnectionConfig config = readConfig();
+        if (config != null && config.getSettings() != null) {
+            return config.getSettings().getClientSecret();
+        }
+        return null;
+    }
+
+    /**
+     * Gets the effective scope (fixed value).
+     */
+    public String getEffectiveScope() {
+        return "openid";
+    }
+
+    /**
+     * Gets the effective callback port (fixed value).
+     */
+    public int getEffectiveCallbackPort() {
+        return 8080;
+    }
+
+    /**
+     * Converts empty string to null.
+     */
+    private String emptyToNull(String value) {
+        return (value != null && !value.isEmpty()) ? value : null;
+    }
+
+    // ========== Login Connection ==========
+
+    /**
+     * Saves login connection configuration (PKCE flow, no client_secret).
+     */
+    public void saveLoginConnection(String clientId, String issuerUri, String apiUrl, Instant tokenExpiration) {
+        try {
+            fileUtil.createDirectory("~/.gate-cli");
+
+            ConnectionConfig config = readConfig();
+            if (config == null) {
+                config = ConnectionConfig.builder()
+                        .version(CONFIG_VERSION)
+                        .backupSettings(ConnectionConfig.BackupSettings.builder().build())
+                        .originalSettingsBackup("~/.gate-cli/backups/settings.json.original")
+                        .build();
+            }
+
+            // Preserve existing settings
+            ConnectionConfig.Settings existingSettings = config.getSettings();
+
+            ConnectionConfig.CurrentConnection currentConnection = ConnectionConfig.CurrentConnection.builder()
+                    .authType("pkce")
+                    .clientId(clientId)
+                    .issuerUri(issuerUri)
+                    .apiUrl(apiUrl)
+                    .lastConnected(Instant.now())
+                    .tokenExpiration(tokenExpiration)
+                    .build();
+
+            config.setCurrentConnection(currentConnection);
+            config.setSettings(existingSettings);
+
+            fileUtil.atomicWriteJson(CONFIG_FILE, config);
+            log.info("Saved login connection configuration to {}", CONFIG_FILE);
+        } catch (IOException e) {
+            throw ConfigurationException.writeFailed(CONFIG_FILE, e);
+        }
     }
 }

@@ -1,8 +1,11 @@
 package io.github.samzhu.gate;
 
+import io.github.samzhu.gate.model.AuthorizationResult;
 import io.github.samzhu.gate.model.ClaudeSettings;
 import io.github.samzhu.gate.model.ConnectionConfig;
 import io.github.samzhu.gate.model.OAuth2TokenResponse;
+import io.github.samzhu.gate.model.OIDCConfiguration;
+import io.github.samzhu.gate.model.PKCEPair;
 import org.springframework.aot.hint.annotation.RegisterReflectionForBinding;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -25,7 +28,11 @@ import org.springframework.web.client.RestClient;
     ConnectionConfig.class,
     ConnectionConfig.CurrentConnection.class,
     ConnectionConfig.BackupSettings.class,
-    ClaudeSettings.class
+    ConnectionConfig.Settings.class,
+    ClaudeSettings.class,
+    OIDCConfiguration.class,
+    PKCEPair.class,
+    AuthorizationResult.class
 })
 public class GateCliApplication {
 

@@ -3,13 +3,15 @@ package io.github.samzhu.gate.command;
 import io.github.samzhu.gate.command.availability.ConnectedAvailability;
 import io.github.samzhu.gate.model.ConnectionConfig;
 import io.github.samzhu.gate.model.OAuth2TokenResponse;
+import io.github.samzhu.gate.model.OIDCConfiguration;
 import io.github.samzhu.gate.service.ClaudeConfigService;
 import io.github.samzhu.gate.service.ConfigurationService;
+import io.github.samzhu.gate.service.OAuth2LoginService;
 import io.github.samzhu.gate.service.OAuth2Service;
+import io.github.samzhu.gate.service.OIDCDiscoveryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.shell.command.annotation.Command;
 import org.springframework.shell.command.annotation.CommandAvailability;
-import org.springframework.shell.command.annotation.Option;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -29,51 +31,65 @@ public class ConnectionCommands {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
     private final OAuth2Service oauth2Service;
+    private final OAuth2LoginService oauth2LoginService;
+    private final OIDCDiscoveryService oidcDiscoveryService;
     private final ClaudeConfigService claudeConfigService;
     private final ConfigurationService configurationService;
     private final ConnectedAvailability connectedAvailability;
 
     /**
-     * Connect to OAuth2 server and configure Claude Code.
+     * Connect to OAuth2 server using client credentials (M2M).
+     * Uses configuration from 'config' command.
      */
-    @Command(command = "connect", description = "Connect to OAuth2 server and configure Claude Code")
-    public String connect(
-            @Option(required = true, longNames = "client-id", shortNames = 'i', description = "OAuth2 client ID") String clientId,
-            @Option(required = true, longNames = "client-secret", shortNames = 's', description = "OAuth2 client secret") String clientSecret,
-            @Option(required = true, longNames = "token-url", shortNames = 't', description = "OAuth2 token endpoint URL") String tokenUrl,
-            @Option(required = true, longNames = "api-url", shortNames = 'a', description = "Custom Claude API endpoint URL") String apiUrl,
-            @Option(longNames = "force", shortNames = 'f', description = "Force overwrite without prompt", defaultValue = "false") boolean force
-    ) {
+    @Command(command = "connect", description = "Connect to OAuth2 server using client credentials (M2M)")
+    public String connect() {
         try {
             StringBuilder output = new StringBuilder();
 
-            // Validate URLs
-            if (!oauth2Service.isValidUrl(tokenUrl)) {
-                return "✗ Invalid token URL: " + tokenUrl + "\n" +
-                       "URL must start with http:// or https://";
+            // 1. Read configuration
+            String clientId = configurationService.getEffectiveClientId();
+            String clientSecret = configurationService.getEffectiveClientSecret();
+            String issuerUri = configurationService.getEffectiveIssuerUri();
+            String apiUrl = configurationService.getEffectiveApiUrl();
+
+            // 2. Validate required settings
+            if (isEmpty(clientId)) {
+                return "✗ Missing configuration: client-id\n" +
+                       "Use 'config --client-id <id>' to set it.\n";
             }
-            if (!oauth2Service.isValidUrl(apiUrl)) {
-                return "✗ Invalid API URL: " + apiUrl + "\n" +
-                       "URL must start with http:// or https://";
+            if (isEmpty(clientSecret)) {
+                return "✗ Missing configuration: client-secret\n" +
+                       "Use 'config --client-secret <secret>' to set it.\n";
             }
+            if (isEmpty(issuerUri)) {
+                return "✗ Missing configuration: issuer-uri\n" +
+                       "Use 'config --issuer-uri <url>' to set it.\n";
+            }
+            if (isEmpty(apiUrl)) {
+                return "✗ Missing configuration: api-url\n" +
+                       "Use 'config --api-url <url>' to set it.\n";
+            }
+
+            // 3. OIDC Discovery to get token endpoint
+            output.append("→ Discovering token endpoint...\n");
+            OIDCConfiguration oidcConfig = oidcDiscoveryService.discover(issuerUri);
+            String tokenUrl = oidcConfig.getTokenEndpoint();
 
             // Check if already connected and settings exist
-            if (!force && claudeConfigService.settingsExist() && configurationService.isConnected()) {
+            if (claudeConfigService.settingsExist() && configurationService.isConnected()) {
                 output.append("⚠ Claude Code settings already configured.\n");
-                output.append("Use --force to overwrite existing configuration.\n");
-                output.append("Or use 'disconnect' first to restore original settings.\n");
-                return output.toString();
+                output.append("Use 'disconnect' first or continue to overwrite.\n");
             }
 
-            // Step 1: Create original backup ONLY if this is the first connection
-            // Skip backup if re-connecting with --force (to preserve original state)
+            // Backup original settings if this is the first connection
             if (!configurationService.isConnected()) {
                 claudeConfigService.ensureOriginalBackup();
             }
 
-            // Step 2: Perform OAuth2 authentication
+            // 4. OAuth2 Client Credentials authentication
             output.append("→ Connecting to OAuth2 server...\n");
-            OAuth2TokenResponse tokenResponse = oauth2Service.getAccessToken(clientId, clientSecret, tokenUrl);
+            OAuth2TokenResponse tokenResponse = oauth2Service.getAccessToken(
+                    clientId, clientSecret, tokenUrl);
 
             if (tokenResponse == null || tokenResponse.getAccessToken() == null) {
                 return "✗ Failed to obtain access token from OAuth2 server";
@@ -82,13 +98,14 @@ public class ConnectionCommands {
             output.append("✓ Connected to OAuth2 server\n");
             output.append("✓ Obtained access token\n");
 
-            // Step 3: Update Claude Code settings
+            // 5. Update Claude Code settings
             output.append("→ Updating Claude Code settings...\n");
             claudeConfigService.updateSettings(apiUrl, tokenResponse.getTokenForAuth(), true);
             output.append("✓ Updated Claude Code settings\n");
 
-            // Step 4: Save connection configuration
-            configurationService.saveConnection(clientId, clientSecret, tokenUrl, apiUrl,
+            // 6. Save connection configuration
+            configurationService.saveConnection(
+                    clientId, clientSecret, tokenUrl, apiUrl,
                     tokenResponse.getExpiresAt());
             output.append("✓ Saved connection configuration\n");
 
@@ -96,6 +113,7 @@ public class ConnectionCommands {
             output.append("\n");
             output.append("Configuration Summary:\n");
             output.append("  API URL: ").append(apiUrl).append("\n");
+            output.append("  Auth Type: OAuth2 Client Credentials (M2M)\n");
             if (tokenResponse.getExpiresAt() != null) {
                 output.append("  Token expires: ")
                         .append(TIMESTAMP_FORMAT.format(tokenResponse.getExpiresAt()))
@@ -111,10 +129,110 @@ public class ConnectionCommands {
     }
 
     /**
+     * Login via OAuth2 browser flow with PKCE.
+     * Uses configuration from 'config' command.
+     */
+    @Command(command = "login", description = "Login via OAuth2 browser flow (PKCE)")
+    public String login() {
+        try {
+            StringBuilder output = new StringBuilder();
+
+            // 1. Read effective configuration
+            String issuerUri = configurationService.getEffectiveIssuerUri();
+            String clientId = configurationService.getEffectiveClientId();
+            String apiUrl = configurationService.getEffectiveApiUrl();
+            String scope = configurationService.getEffectiveScope();
+            int callbackPort = configurationService.getEffectiveCallbackPort();
+
+            // 2. Validate required settings
+            if (isEmpty(issuerUri)) {
+                return "✗ Missing configuration: issuer-uri\n" +
+                       "Use 'config --issuer-uri <url>' to set it.\n";
+            }
+            if (isEmpty(clientId)) {
+                return "✗ Missing configuration: client-id\n" +
+                       "Use 'config --client-id <id>' to set it.\n";
+            }
+            if (isEmpty(apiUrl)) {
+                return "✗ Missing configuration: api-url\n" +
+                       "Use 'config --api-url <url>' to set it.\n";
+            }
+
+            String redirectUri = "http://localhost:" + callbackPort + "/callback";
+
+            // 3. Execute OAuth2 login flow
+            output.append("→ Starting OAuth2 login...\n");
+            output.append("  Issuer:    ").append(issuerUri).append("\n");
+            output.append("  Client ID: ").append(clientId).append("\n");
+
+            OAuth2TokenResponse tokenResponse = oauth2LoginService.login(
+                    issuerUri, clientId, scope, redirectUri
+            );
+
+            if (tokenResponse == null || tokenResponse.getAccessToken() == null) {
+                return "✗ Failed to obtain access token";
+            }
+
+            output.append("✓ Login successful\n");
+            output.append("✓ Obtained access token\n");
+
+            // 4. Backup and update Claude Code settings
+            if (!configurationService.isConnected()) {
+                claudeConfigService.ensureOriginalBackup();
+            }
+
+            claudeConfigService.updateSettings(apiUrl, tokenResponse.getTokenForAuth(), true);
+            output.append("✓ Updated Claude Code settings\n");
+
+            // 5. Save connection configuration
+            configurationService.saveLoginConnection(
+                    clientId, issuerUri, apiUrl, tokenResponse.getExpiresAt()
+            );
+            output.append("✓ Saved connection configuration\n");
+
+            // 6. Display summary
+            output.append("\n");
+            output.append("Configuration Summary:\n");
+            output.append("  API URL: ").append(apiUrl).append("\n");
+            output.append("  Auth Type: OAuth2 PKCE (Public Client)\n");
+            if (tokenResponse.getExpiresAt() != null) {
+                output.append("  Token expires: ")
+                        .append(TIMESTAMP_FORMAT.format(tokenResponse.getExpiresAt()))
+                        .append("\n");
+            }
+            output.append("  Settings file: ").append(claudeConfigService.getSettingsPath()).append("\n");
+
+            return output.toString();
+
+        } catch (Exception e) {
+            return formatError("Login failed", e);
+        }
+    }
+
+    private boolean isEmpty(String value) {
+        return value == null || value.isEmpty();
+    }
+
+    /**
      * Disconnect from custom API and restore original settings.
      */
     @Command(command = "disconnect", description = "Disconnect and restore original Claude Code settings")
     public String disconnect() {
+        return doDisconnect();
+    }
+
+    /**
+     * Logout (alias for disconnect).
+     */
+    @Command(command = "logout", description = "Logout and restore original Claude Code settings (alias for disconnect)")
+    public String logout() {
+        return doDisconnect();
+    }
+
+    /**
+     * Internal disconnect implementation.
+     */
+    private String doDisconnect() {
         try {
             StringBuilder output = new StringBuilder();
 
