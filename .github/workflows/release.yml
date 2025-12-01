@@ -248,7 +248,7 @@ jobs:
             1. Download the appropriate ZIP file for your platform
             2. Extract: `unzip gate-cli-<platform>.zip`
             3. (macOS/Linux) Make executable: `chmod +x gate-cli`
-            4. Move to PATH: `mv gate-cli /usr/local/bin/` (or add to your PATH)
+            4. Run directly: `./gate-cli` or add to PATH: `mv gate-cli /usr/local/bin/`
 
             ### SBOM (Software Bill of Materials)
 
