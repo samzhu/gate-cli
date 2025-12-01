@@ -130,7 +130,6 @@ on:
 | `ubuntu-latest` | Ubuntu 24.04 | x64 | 4 | 16GB |
 | `ubuntu-24.04-arm` | Ubuntu 24.04 | arm64 | 4 | 16GB |
 | **macOS** |
-| `macos-13` | macOS 13 | x64 (Intel) | 4 | 14GB |
 | `macos-15-intel` | macOS 15 | x64 (Intel) | 4 | 14GB |
 | `macos-latest` | macOS 15 | arm64 (Apple Silicon) | 3 | 7GB |
 | `macos-14` | macOS 14 | arm64 (Apple Silicon) | 3 | 7GB |
@@ -145,7 +144,7 @@ on:
 | 平台 | Runner | 產出檔案 |
 |------|--------|---------|
 | Linux x64 | `ubuntu-latest` | `gate-cli-linux-amd64.zip` |
-| macOS Intel | `macos-13` | `gate-cli-macos-amd64.zip` |
+| macOS Intel | `macos-15-intel` | `gate-cli-macos-amd64.zip` |
 | macOS Apple Silicon | `macos-latest` | `gate-cli-macos-arm64.zip` |
 | Windows x64 | `windows-latest` | `gate-cli-windows-amd64.zip` |
 
@@ -431,6 +430,48 @@ zip: command not found
 - [How to create a cross platform zip archive using GitHub Actions](https://mysticmind.dev/how-to-create-a-cross-platform-zip-archive-using-github-actions)
 - [PowerShell Compress-Archive](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.archive/compress-archive)
 
+### 6.6 Windows 快取錯誤: Device or resource busy
+
+**問題**: 在 Windows runner 的 Post job cleanup 階段出現大量錯誤：
+
+```
+/usr/bin/tar: C\:/Users/runneradmin/.gradle/caches/9.2.1/fileContent/fileContent.lock:
+Read error at byte 0, while reading 38 bytes: Device or resource busy
+```
+
+**原因**: Gradle daemon 在 Windows 上持有 `.lock` 檔案，導致快取存檔時無法讀取這些檔案。
+
+**解決方案**: 使用 `gradle/actions/setup-gradle` 取代內建快取
+
+`gradle/actions/setup-gradle` 會在 post-action 階段自動停止 Gradle daemon，避免 lock 檔案問題。
+
+```yaml
+# ❌ 問題：graalvm/setup-graalvm 的內建快取在 Windows 上有 lock 問題
+- name: Setup GraalVM
+  uses: graalvm/setup-graalvm@v1
+  with:
+    java-version: '25'
+    distribution: 'graalvm'
+    cache: 'gradle'  # 這會導致 Windows lock 問題
+
+# ✅ 正確：分開使用 GraalVM 和 Gradle actions
+- name: Setup GraalVM
+  uses: graalvm/setup-graalvm@v1
+  with:
+    java-version: '25'
+    distribution: 'graalvm'
+    # 不使用內建 cache
+
+- name: Setup Gradle
+  uses: gradle/actions/setup-gradle@v4
+  # 自動處理快取和 daemon 管理
+```
+
+**參考資料**:
+- [Gradle caching post-task fails on Windows - actions/setup-java#633](https://github.com/actions/setup-java/issues/633)
+- [Configure Gradle for GitHub Actions](https://community.gradle.org/github-actions/docs/setup-gradle/)
+- [gradle/actions](https://github.com/gradle/actions)
+
 ---
 
 ## 7. 參考資源
@@ -451,3 +492,5 @@ zip: command not found
 | 1.0.0 | 2025-11-28 | AI 助理 | 初始文件建立 |
 | 1.0.1 | 2025-11-28 | AI 助理 | 新增 6.4 Windows PowerShell 參數解析問題說明 |
 | 1.0.2 | 2025-11-28 | AI 助理 | 新增 6.5 Windows zip 指令不存在問題說明 |
+| 1.0.3 | 2025-11-28 | AI 助理 | 新增 6.6 Windows Gradle 快取 lock 檔案問題說明 |
+| 1.0.4 | 2025-11-28 | AI 助理 | 更新 macOS Intel runner 從 macos-13 改為 macos-15-intel |

@@ -46,8 +46,9 @@ jobs:
           # - os: ubuntu-24.04-arm
           #   artifact-name: gate-cli-linux-arm64
           #   executable-name: gate-cli
-          # macOS Intel x64 (macos-13, 4 CPU, 14GB RAM)
-          - os: macos-13
+          # macOS Intel x64 (macos-15-intel, 4 CPU, 14GB RAM)
+          # Note: macos-13 deprecated, see https://github.com/actions/runner-images/issues/13046
+          - os: macos-15-intel
             artifact-name: gate-cli-macos-amd64
             executable-name: gate-cli
           # macOS Apple Silicon ARM64 (macos-latest = macos-15, 3 CPU M1, 7GB RAM)
@@ -73,7 +74,13 @@ jobs:
           java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          cache: 'gradle'
+          # Note: Use gradle/actions/setup-gradle for caching instead of built-in cache
+          # to avoid Windows lock file issues during cache save
+
+      # Setup Gradle with proper caching and daemon management
+      # This action stops Gradle daemon in post-action, preventing Windows lock file errors
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       # Extract version number from tag (remove 'v' prefix)
       # Example: v1.0.0 -> 1.0.0, v0.0.1-SNAPSHOT -> 0.0.1-SNAPSHOT
