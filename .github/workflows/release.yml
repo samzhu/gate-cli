@@ -260,7 +260,7 @@ jobs:
             ```bash
             gh attestation verify gate-cli-<platform>.zip \
               -R ${{ github.repository }} \
-              --predicate-type https://cyclonedx.org/bom/v1.6
+              --predicate-type https://cyclonedx.org/bom
             ```
 
             ---

@@ -200,7 +200,94 @@ SBOM 是軟體物料清單，記錄應用程式的所有相依套件，用於：
 ```bash
 gh attestation verify gate-cli-linux-amd64.zip \
   -R samzhu/gate-cli \
-  --predicate-type https://cyclonedx.org/bom/v1.6
+  --predicate-type https://cyclonedx.org/bom
+```
+
+> **注意**: 使用官方 predicate type `https://cyclonedx.org/bom`（不含版本號），適用於所有 CycloneDX BOM 類型（SBOM、SaaSBOM、HBOM）。詳見 [CycloneDX Specification](https://cyclonedx.org/specification/overview/)。
+
+#### Attestation 運作原理
+
+##### 建置時（GitHub Actions 自動執行）
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              actions/attest-sbom@v2 自動執行                 │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. 計算 gate-cli-linux-amd64.zip 的 SHA256 雜湊值          │
+│                         │                                   │
+│                         ▼                                   │
+│  2. 讀取 gate-cli-sbom.cdx.json 內容                        │
+│                         │                                   │
+│                         ▼                                   │
+│  3. 使用 GitHub OIDC 取得身份憑證（證明是 GitHub Actions）   │
+│                         │                                   │
+│                         ▼                                   │
+│  4. 建立 Attestation（綁定：檔案雜湊 + SBOM + 建置資訊）     │
+│                         │                                   │
+│                         ▼                                   │
+│  5. 使用 Sigstore 簽署                                      │
+│                         │                                   │
+│                         ▼                                   │
+│  6. 自動上傳到 GitHub Attestations + Sigstore Rekor 日誌    │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+##### 驗證時（使用者執行 gh attestation verify）
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      驗證流程                                │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  1. 計算下載檔案的 SHA256 雜湊值                             │
+│                         │                                   │
+│                         ▼                                   │
+│  2. 向 GitHub/Sigstore 查詢此雜湊值的 Attestation            │
+│                         │                                   │
+│                         ▼                                   │
+│  3. 驗證簽章：                                               │
+│     • 是否由 GitHub Actions 簽署？                          │
+│     • 是否來自指定的 Repository？                           │
+│     • 簽章是否被竄改？                                      │
+│                         │                                   │
+│                         ▼                                   │
+│  4. 回報驗證結果 ✓ 成功 或 ✗ 失敗                           │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+##### 關鍵技術：Sigstore
+
+| 元件 | 功能 |
+|------|------|
+| **Fulcio** | 短期憑證授權中心，發給 GitHub Actions 臨時簽署憑證 |
+| **Rekor** | 公開透明日誌，記錄所有簽署事件（不可竄改、可公開審計） |
+| **Cosign** | 簽署與驗證工具 |
+
+##### 為何無法偽造？
+
+1. **無私鑰外洩風險** - 使用 OIDC + 短期憑證，不需管理長期私鑰
+2. **透明日誌** - 所有簽署都記錄在公開日誌（Rekor），任何人都可審計
+3. **身份綁定** - 憑證綁定特定 Repository 和 Workflow，無法冒充
+
+##### 查看 Attestations
+
+```bash
+# 列出所有 attestations
+gh attestation list -R samzhu/gate-cli
+
+# 或到 GitHub 網頁查看
+# https://github.com/samzhu/gate-cli/attestations
+```
+
+##### 必要權限設定
+
+```yaml
+permissions:
+  id-token: write      # 必要：申請 OIDC token
+  attestations: write  # 必要：上傳 attestation
 ```
 
 ### 3.5 Release 產出
@@ -481,6 +568,8 @@ Read error at byte 0, while reading 38 bytes: Device or resource busy
 - [GitHub-hosted Runners](https://docs.github.com/en/actions/using-github-hosted-runners/using-github-hosted-runners/about-github-hosted-runners)
 - [actions/attest-sbom](https://github.com/actions/attest-sbom)
 - [CycloneDX](https://cyclonedx.org/)
+- [Sigstore](https://www.sigstore.dev/) - 開源軟體簽署與驗證專案
+- [GitHub Artifact Attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)
 - [softprops/action-gh-release](https://github.com/softprops/action-gh-release)
 
 ---
@@ -494,3 +583,5 @@ Read error at byte 0, while reading 38 bytes: Device or resource busy
 | 1.0.2 | 2025-11-28 | AI 助理 | 新增 6.5 Windows zip 指令不存在問題說明 |
 | 1.0.3 | 2025-11-28 | AI 助理 | 新增 6.6 Windows Gradle 快取 lock 檔案問題說明 |
 | 1.0.4 | 2025-11-28 | AI 助理 | 更新 macOS Intel runner 從 macos-13 改為 macos-15-intel |
+| 1.0.5 | 2025-11-28 | AI 助理 | 更新 SBOM attestation predicate-type 為官方格式 |
+| 1.0.6 | 2025-11-28 | AI 助理 | 新增 Attestation 運作原理詳細說明 |
