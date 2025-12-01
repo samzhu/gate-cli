@@ -386,6 +386,51 @@ Windows GitHub Actions runner 預設使用 PowerShell (pwsh) 作為 shell。Powe
 - [PowerShell about_Parsing](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_parsing)
 - [GitHub Actions - All the Shells](https://dev.to/pwd9000/github-actions-all-the-shells-581h)
 
+### 6.5 Windows 建置錯誤: zip: command not found
+
+**問題**: 在 Windows runner 執行 `zip` 指令時出現：
+
+```
+zip: command not found
+```
+
+**原因**: Windows runner 沒有內建 `zip` 指令，即使使用 Git Bash 也無法使用。
+
+**解決方案**: 使用 PowerShell 的 `Compress-Archive` 指令
+
+```yaml
+# ❌ 錯誤：Windows 沒有 zip 指令
+- name: Create zip
+  shell: bash
+  run: zip archive.zip file.exe
+
+# ✅ 正確：使用 PowerShell Compress-Archive
+- name: Create zip (Windows)
+  if: runner.os == 'Windows'
+  shell: pwsh
+  run: |
+    Compress-Archive -Path file.exe -DestinationPath archive.zip
+```
+
+**最佳實踐**: 根據平台分開處理
+
+```yaml
+# Unix (Linux/macOS)
+- name: Create zip (Unix)
+  if: runner.os != 'Windows'
+  run: zip archive.zip myfile
+
+# Windows
+- name: Create zip (Windows)
+  if: runner.os == 'Windows'
+  shell: pwsh
+  run: Compress-Archive -Path myfile.exe -DestinationPath archive.zip
+```
+
+**參考資料**:
+- [How to create a cross platform zip archive using GitHub Actions](https://mysticmind.dev/how-to-create-a-cross-platform-zip-archive-using-github-actions)
+- [PowerShell Compress-Archive](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.archive/compress-archive)
+
 ---
 
 ## 7. 參考資源
@@ -405,3 +450,4 @@ Windows GitHub Actions runner 預設使用 PowerShell (pwsh) 作為 shell。Powe
 |------|------|------|------|
 | 1.0.0 | 2025-11-28 | AI 助理 | 初始文件建立 |
 | 1.0.1 | 2025-11-28 | AI 助理 | 新增 6.4 Windows PowerShell 參數解析問題說明 |
+| 1.0.2 | 2025-11-28 | AI 助理 | 新增 6.5 Windows zip 指令不存在問題說明 |

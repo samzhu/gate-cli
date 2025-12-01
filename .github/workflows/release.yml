@@ -97,18 +97,24 @@ jobs:
         shell: bash
         run: ./gradlew nativeCompile -Pversion=${{ env.BUILD_VERSION }}
 
-      - name: Prepare release artifact
-        shell: bash
+      # Prepare release artifact (Unix: Linux/macOS)
+      - name: Prepare release artifact (Unix)
+        if: runner.os != 'Windows'
         run: |
           mkdir -p release
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            cp build/native/nativeCompile/gate-cli.exe release/${{ matrix.artifact-name }}.exe
-            cd release && zip ${{ matrix.artifact-name }}.zip ${{ matrix.artifact-name }}.exe
-          else
-            cp build/native/nativeCompile/gate-cli release/${{ matrix.artifact-name }}
-            chmod +x release/${{ matrix.artifact-name }}
-            cd release && zip ${{ matrix.artifact-name }}.zip ${{ matrix.artifact-name }}
-          fi
+          cp build/native/nativeCompile/gate-cli release/${{ matrix.artifact-name }}
+          chmod +x release/${{ matrix.artifact-name }}
+          cd release && zip ${{ matrix.artifact-name }}.zip ${{ matrix.artifact-name }}
+
+      # Prepare release artifact (Windows)
+      # Windows doesn't have 'zip' command, use PowerShell's Compress-Archive instead
+      - name: Prepare release artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release
+          Copy-Item build/native/nativeCompile/gate-cli.exe -Destination release/${{ matrix.artifact-name }}.exe
+          Compress-Archive -Path release/${{ matrix.artifact-name }}.exe -DestinationPath release/${{ matrix.artifact-name }}.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
