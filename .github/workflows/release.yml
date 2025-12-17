@@ -109,9 +109,9 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           mkdir -p release
-          cp build/native/nativeCompile/gate-cli release/${{ matrix.artifact-name }}
-          chmod +x release/${{ matrix.artifact-name }}
-          cd release && zip ${{ matrix.artifact-name }}.zip ${{ matrix.artifact-name }}
+          cp build/native/nativeCompile/gate-cli release/gate-cli
+          chmod +x release/gate-cli
+          cd release && zip ${{ matrix.artifact-name }}.zip gate-cli
 
       # Prepare release artifact (Windows)
       # Windows doesn't have 'zip' command, use PowerShell's Compress-Archive instead
@@ -120,8 +120,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release
-          Copy-Item build/native/nativeCompile/gate-cli.exe -Destination release/${{ matrix.artifact-name }}.exe
-          Compress-Archive -Path release/${{ matrix.artifact-name }}.exe -DestinationPath release/${{ matrix.artifact-name }}.zip
+          Copy-Item build/native/nativeCompile/gate-cli.exe -Destination release/gate-cli.exe
+          Compress-Archive -Path release/gate-cli.exe -DestinationPath release/${{ matrix.artifact-name }}.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
