@@ -27,7 +27,10 @@ Gate-CLI 是一個命令列工具，用於自動化配置 Claude Code 以使用�
 1. 下載適合您平台的 ZIP 檔案
 2. 解壓縮：`unzip gate-cli-<platform>.zip`
 3. (macOS/Linux) 設定執行權限：`chmod +x gate-cli`
-4. 直接執行：`./gate-cli` 或加入 PATH：`mv gate-cli /usr/local/bin/`
+4. **(僅 macOS)** 移除隔離屬性：`xattr -d com.apple.quarantine gate-cli`
+5. 直接執行：`./gate-cli` 或加入 PATH：`mv gate-cli /usr/local/bin/`
+
+> **macOS 使用者注意：** macOS Gatekeeper 可能會阻擋執行檔，因為它沒有 Apple 開發者憑證簽名。執行 `xattr` 指令可移除隔離標記，允許執行檔正常運作。
 
 ---
 

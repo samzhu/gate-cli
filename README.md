@@ -27,7 +27,10 @@ Gate-CLI is a command-line tool for automating Claude Code configuration with OA
 1. Download the appropriate ZIP file for your platform
 2. Extract: `unzip gate-cli-<platform>.zip`
 3. (macOS/Linux) Make executable: `chmod +x gate-cli`
-4. Run directly: `./gate-cli` or add to PATH: `mv gate-cli /usr/local/bin/`
+4. **(macOS only)** Remove quarantine attribute: `xattr -d com.apple.quarantine gate-cli`
+5. Run directly: `./gate-cli` or add to PATH: `mv gate-cli /usr/local/bin/`
+
+> **Note for macOS users:** macOS Gatekeeper may block the executable because it's not signed with an Apple Developer certificate. Running the `xattr` command removes the quarantine flag and allows the binary to execute.
 
 ---
 
