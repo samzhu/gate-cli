@@ -17,8 +17,7 @@ spring.shell:
   interactive:
     enabled: true
   history:
-    enabled: true
-    name: gate-cli
+    enabled: false
   command:
     help:
       enabled: true
